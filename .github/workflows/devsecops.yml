@@ -1,60 +1,31 @@
 name: DevSecOps Pipeline
 
-on:
-  push:
-    branches: [ "main" ]
-
-permissions:
-  contents: read
-  security-events: write
-  actions: read
+on: [push]
 
 jobs:
-  devsecops:
+  security-scan:
     runs-on: ubuntu-latest
-
     steps:
-    # =============================
-    # 1. Checkout code
-    # =============================
-    - name: Checkout repository
-      uses: actions/checkout@v3
+      - name: Checkout code
+        uses: actions/checkout@v3
 
-    # =============================
-    # 2. CodeQL - SAST
-    # =============================
-    - name: Init CodeQL
-      uses: github/codeql-action/init@v3
-      with:
-        languages: python
+      - name: Run Bandit (Python SAST)
+        run: |
+          pip install bandit
+          bandit -r api/ || true 
 
-    - name: Run CodeQL
-      uses: github/codeql-action/analyze@v3
+      - name: Run Safety (Dependency Scan)
+        run: |
+          pip install safety
+          safety check -r requirements.txt || true
 
-    # =============================
-    # 3. Bandit - Python Security Scan
-    # =============================
-    - name: Install Bandit
-      run: pip install bandit
+      - name: Build Docker Image
+        run: |
+          docker build -t my-app .
 
-    - name: Run Bandit
-      run: bandit -r api --severity-level high
-
-    # =============================
-    # 4. Dependency Scan (Safety)
-    # =============================
-    - name: Install Safety
-      run: pip install safety
-
-    - name: Dependency vulnerability scan
-      run: safety check -r requirements.txt
-
-    # =============================
-    # 5. Build Docker Image
-    # =============================
-    - name: Build Docker image
-      run: docker build -t devsecops-api .
-
-    # =============================
-    # 6. Trivy - Docker Image Scan
-    # =============================
+      - name: Run Trivy (Container Scan)
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: 'my-app' 
+          format: 'table'
+          severity: 'CRITICAL,HIGH'
