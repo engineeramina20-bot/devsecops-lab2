@@ -1,69 +1,69 @@
-from flask import Flask, request
+from flask import Flask, request, jsonify
 import sqlite3
+import bcrypt
 import subprocess
-import hashlib
 import os
 
 app = Flask(__name__)
 
-SECRET_KEY = "dev-secret-key-12345"   # Hardcoded secret
+DB_NAME = "users.db"
+
+# ---------- Utils ----------
+def get_db():
+    return sqlite3.connect(DB_NAME)
+
+# ---------- Routes ----------
 
 @app.route("/login", methods=["POST"])
 def login():
-    username = request.json.get("username")
-    password = request.json.get("password")
+    data = request.json
+    username = data.get("username", "")
+    password = data.get("password", "").encode()
 
-    conn = sqlite3.connect("users.db")
+    conn = get_db()
     cursor = conn.cursor()
 
-    query = f"SELECT * FROM users WHERE username='{username}' AND password='{password}'"
-    cursor.execute(query)
+    # ✅ Protection contre SQL Injection
+    cursor.execute("SELECT password FROM users WHERE username = ?", (username,))
+    row = cursor.fetchone()
 
-    result = cursor.fetchone()
-    if result:
-        return {"status": "success", "user": username}
-    return {"status": "error", "message": "Invalid credentials"}
+    if row and bcrypt.checkpw(password, row[0]):
+        return jsonify({"status": "success", "user": username})
+
+    return jsonify({"status": "error", "message": "Invalid credentials"}), 401
+
 
 @app.route("/ping", methods=["POST"])
 def ping():
     host = request.json.get("host", "")
-    cmd = f"ping -c 1 {host}"
-    output = subprocess.check_output(cmd, shell=True)
 
-    return {"output": output.decode()}
+    # ✅ Validation simple
+    if not host.replace(".", "").isalnum():
+        return jsonify({"error": "Invalid host"}), 400
 
-@app.route("/compute", methods=["POST"])
-def compute():
-    expression = request.json.get("expression", "1+1")
-    result = eval(expression)   # CRITIQUE
-    return {"result": result}
+    try:
+        output = subprocess.check_output(
+            ["ping", "-c", "1", host],
+            stderr=subprocess.STDOUT
+        )
+        return jsonify({"output": output.decode()})
+    except Exception:
+        return jsonify({"error": "Ping failed"}), 500
+
 
 @app.route("/hash", methods=["POST"])
 def hash_password():
-    pwd = request.json.get("password", "admin")
-    hashed = hashlib.md5(pwd.encode()).hexdigest()
-    return {"md5": hashed}
+    pwd = request.json.get("password", "").encode()
 
-@app.route("/readfile", methods=["POST"])
-def readfile():
-    filename = request.json.get("filename", "test.txt")
-    with open(filename, "r") as f:
-        content = f.read()
+    # ✅ bcrypt au lieu de md5
+    hashed = bcrypt.hashpw(pwd, bcrypt.gensalt())
+    return jsonify({"hash": hashed.decode()})
 
-    return {"content": content}
-
-@app.route("/debug", methods=["GET"])
-def debug():
-    # Renvoie des détails sensibles -> mauvaise pratique
-    return {
-        "debug": True,
-        "secret_key": SECRET_KEY,
-        "environment": dict(os.environ)
-    }
 
 @app.route("/hello", methods=["GET"])
 def hello():
-    return {"message": "Welcome to the DevSecOps vulnerable API"}
+    return jsonify({"message": "Secure DevSecOps API"})
+
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)

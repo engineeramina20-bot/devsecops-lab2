@@ -1,10 +1,10 @@
-FROM python:3.9
+FROM python:3.9-slim
 
 WORKDIR /app
 
-COPY ../api .
+COPY api/ .
 
-RUN pip install flask
+RUN pip install --no-cache-dir flask bcrypt
 
 EXPOSE 5000
 
